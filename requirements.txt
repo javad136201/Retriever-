@@ -1,0 +1,7 @@
+algotik-tse
+pandas
+numpy
+python-telegram-bot==20.7
+ta
+scikit-learn
+statsmodels
