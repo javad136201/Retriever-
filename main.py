@@ -1,5 +1,5 @@
 # ============================================================
-# ربات تحلیل بورس تهران - نسخه کامل با بک‌تست و پیش‌بینی
+# ربات تحلیل بورس تهران - نسخه سازگار با python-telegram-bot 13.7
 # ============================================================
 
 import os
@@ -7,7 +7,7 @@ import logging
 import pandas as pd
 import numpy as np
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Updater, CommandHandler, CallbackContext
 import algotik_tse as tse
 import ta
 import warnings
@@ -27,8 +27,6 @@ if not TOKEN:
 
 # ===================== کلاس تحلیلگر ==========================
 class StockAnalyzer:
-    """تحلیلگر سهام با شاخص‌های تکنیکال و پیش‌بینی"""
-
     def __init__(self, symbol):
         self.symbol = symbol
         self.df = None
@@ -56,7 +54,6 @@ class StockAnalyzer:
         df['MACD'] = macd.macd()
         df['MACD_Signal'] = macd.macd_signal()
         df['MACD_Hist'] = macd.macd_diff()
-
         df['RSI'] = ta.momentum.RSIIndicator(close, window=14).rsi()
 
         volume = df['Volume'].values
@@ -291,8 +288,8 @@ class StockAnalyzer:
 
 # ===================== دستورات ربات =========================
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+def start(update: Update, context: CallbackContext):
+    update.message.reply_text(
         "🤖 **ربات تحلیل بورس تهران**\n\n"
         "📌 دستورات:\n"
         "/start - راهنما\n"
@@ -303,8 +300,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "مثال: `/analyze فولاد`"
     )
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+def help_command(update: Update, context: CallbackContext):
+    update.message.reply_text(
         "📖 **راهنمای کامل**\n\n"
         "🔹 /analyze <نماد> : تحلیل تکنیکال با MACD, RSI, حجم و ورود/خروج پول\n"
         "🔹 /backtest <نماد> <تعداد روز> : تست استراتژی روی داده‌های گذشته\n"
@@ -312,49 +309,51 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📌 نمادهای معتبر: فولاد، شستا، خودرو، وبملت، خساپا، وغدیر و ..."
     )
 
-async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("❌ لطفاً نماد را وارد کنید.\nمثال: `/analyze فولاد`")
+def analyze(update: Update, context: CallbackContext):
+    args = context.args
+    if not args:
+        update.message.reply_text("❌ لطفاً نماد را وارد کنید.\nمثال: `/analyze فولاد`")
         return
-    symbol = context.args[0].strip()
-    await update.message.reply_text(f"⏳ در حال تحلیل {symbol} ...")
+    symbol = args[0].strip()
+    update.message.reply_text(f"⏳ در حال تحلیل {symbol} ...")
     try:
         analyzer = StockAnalyzer(symbol)
         if not analyzer.fetch_data():
-            await update.message.reply_text(f"❌ نماد '{symbol}' معتبر نیست.")
+            update.message.reply_text(f"❌ نماد '{symbol}' معتبر نیست.")
             return
         if not analyzer.calculate_indicators():
-            await update.message.reply_text("❌ خطا در محاسبه شاخص‌ها.")
+            update.message.reply_text("❌ خطا در محاسبه شاخص‌ها.")
             return
         result = analyzer.get_analysis()
-        await update.message.reply_text(result)
+        update.message.reply_text(result)
     except Exception as e:
         logger.error(f"خطا در تحلیل: {e}")
-        await update.message.reply_text("❌ خطایی رخ داد. مجدداً تلاش کنید.")
+        update.message.reply_text("❌ خطایی رخ داد. مجدداً تلاش کنید.")
 
-async def backtest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 1:
-        await update.message.reply_text("❌ لطفاً نماد را وارد کنید.\nمثال: `/backtest فولاد 100`")
+def backtest_command(update: Update, context: CallbackContext):
+    args = context.args
+    if len(args) < 1:
+        update.message.reply_text("❌ لطفاً نماد را وارد کنید.\nمثال: `/backtest فولاد 100`")
         return
-    symbol = context.args[0]
+    symbol = args[0]
     days = 100
-    if len(context.args) >= 2:
+    if len(args) >= 2:
         try:
-            days = int(context.args[1])
+            days = int(args[1])
         except:
             pass
-    await update.message.reply_text(f"⏳ در حال بک‌تست {symbol} برای {days} روز ...")
+    update.message.reply_text(f"⏳ در حال بک‌تست {symbol} برای {days} روز ...")
     try:
         analyzer = StockAnalyzer(symbol)
         if not analyzer.fetch_data(days=days+50):
-            await update.message.reply_text("❌ نماد معتبر نیست.")
+            update.message.reply_text("❌ نماد معتبر نیست.")
             return
         if not analyzer.calculate_indicators():
-            await update.message.reply_text("❌ خطا در محاسبه شاخص‌ها.")
+            update.message.reply_text("❌ خطا در محاسبه شاخص‌ها.")
             return
         result = analyzer.backtest(days=days)
         if result is None:
-            await update.message.reply_text("❌ داده کافی برای بک‌تست وجود ندارد.")
+            update.message.reply_text("❌ داده کافی برای بک‌تست وجود ندارد.")
             return
         text = f"""
 📊 **نتایج بک‌تست {symbol}** ({days} روز)
@@ -367,28 +366,29 @@ async def backtest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📉 بازدهی خرید و نگهداری: {result['buy_hold_return']:+.2f}%
 🎯 عملکرد نسبت به خرید و نگهداری: {result['total_return'] - result['buy_hold_return']:+.2f}%
 """
-        await update.message.reply_text(text)
+        update.message.reply_text(text)
     except Exception as e:
         logger.error(f"خطا در بک‌تست: {e}")
-        await update.message.reply_text("❌ خطایی رخ داد.")
+        update.message.reply_text("❌ خطایی رخ داد.")
 
-async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("❌ لطفاً نماد را وارد کنید.\nمثال: `/predict فولاد`")
+def predict_command(update: Update, context: CallbackContext):
+    args = context.args
+    if not args:
+        update.message.reply_text("❌ لطفاً نماد را وارد کنید.\nمثال: `/predict فولاد`")
         return
-    symbol = context.args[0]
-    await update.message.reply_text(f"⏳ در حال پیش‌بینی {symbol} ...")
+    symbol = args[0]
+    update.message.reply_text(f"⏳ در حال پیش‌بینی {symbol} ...")
     try:
         analyzer = StockAnalyzer(symbol)
         if not analyzer.fetch_data(days=150):
-            await update.message.reply_text("❌ نماد معتبر نیست.")
+            update.message.reply_text("❌ نماد معتبر نیست.")
             return
         if not analyzer.calculate_indicators():
-            await update.message.reply_text("❌ خطا در محاسبه شاخص‌ها.")
+            update.message.reply_text("❌ خطا در محاسبه شاخص‌ها.")
             return
         pred = analyzer.predict_future()
         if pred is None:
-            await update.message.reply_text("❌ داده کافی برای پیش‌بینی وجود ندارد (نیاز به حداقل ۳۰ روز داده).")
+            update.message.reply_text("❌ داده کافی برای پیش‌بینی وجود ندارد (نیاز به حداقل ۳۰ روز داده).")
             return
         text = f"🔮 **پیش‌بینی قیمت {symbol}** (۵ روز آینده)\n\nقیمت فعلی: {pred['current_price']:,.0f} تومان\n━━━━━━━━━━━━━━━━━━\n"
         for i, price in enumerate(pred['predictions'], 1):
@@ -400,22 +400,26 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text += f"روز {i}→{i+1}: {emoji} {t}\n"
         overall = "🟢 **روند کلی صعودی**" if pred['predictions'][-1] > pred['predictions'][0] else "🔴 **روند کلی نزولی**"
         text += f"\n🎯 {overall}"
-        await update.message.reply_text(text)
+        update.message.reply_text(text)
     except Exception as e:
         logger.error(f"خطا در پیش‌بینی: {e}")
-        await update.message.reply_text("❌ خطایی رخ داد.")
+        update.message.reply_text("❌ خطایی رخ داد.")
 
 # ===================== اجرای اصلی =========================
 
 def main():
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("analyze", analyze))
-    app.add_handler(CommandHandler("backtest", backtest_command))
-    app.add_handler(CommandHandler("predict", predict_command))
+    updater = Updater(token=TOKEN, use_context=True)
+    dp = updater.dispatcher
+    
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("help", help_command))
+    dp.add_handler(CommandHandler("analyze", analyze))
+    dp.add_handler(CommandHandler("backtest", backtest_command))
+    dp.add_handler(CommandHandler("predict", predict_command))
+    
     logger.info("🚀 ربات تحلیل بورس شروع به کار کرد...")
-    app.run_polling()
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == "__main__":
     main()
