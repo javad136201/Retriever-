@@ -1,6 +1,6 @@
-algotik-tse
+tse-data
 pandas
 numpy
 python-telegram-bot==13.7
 ta
-scikit-learn
+requests
