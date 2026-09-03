@@ -10,7 +10,6 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 import algotik_tse as tse
 import ta
-from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -34,7 +33,6 @@ class StockAnalyzer:
         self.symbol = symbol
         self.df = None
 
-    # --------------------- دریافت داده -----------------------
     def fetch_data(self, days=200):
         try:
             self.df = tse.get_history(symbol=self.symbol, adjust=True, include_jdate=True)
@@ -48,32 +46,24 @@ class StockAnalyzer:
             logger.error(f"خطا در دریافت داده: {e}")
             return False
 
-    # ------------------- محاسبه شاخص‌ها ---------------------
     def calculate_indicators(self):
         if self.df is None or self.df.empty:
             return False
-
         df = self.df.copy()
         close = df['Close'].values
 
-        # MACD
         macd = ta.trend.MACD(close)
         df['MACD'] = macd.macd()
         df['MACD_Signal'] = macd.macd_signal()
         df['MACD_Hist'] = macd.macd_diff()
 
-        # RSI
         df['RSI'] = ta.momentum.RSIIndicator(close, window=14).rsi()
 
-        # حجم معاملات
         volume = df['Volume'].values
         df['Volume_MA_20'] = pd.Series(volume).rolling(window=20).mean()
         df['Volume_Ratio'] = df['Volume'] / df['Volume_MA_20']
-
-        # میانگین متحرک ساده
         df['SMA_20'] = pd.Series(close).rolling(window=20).mean()
 
-        # ورود و خروج پول (حقیقی/حقوقی)
         try:
             client = tse.get_client_type(symbol=self.symbol, include_jdate=True)
             if client is not None and not client.empty:
@@ -91,19 +81,15 @@ class StockAnalyzer:
         self.df = df
         return True
 
-    # --------------------- تحلیل لحظه‌ای --------------------
     def get_analysis(self):
         if self.df is None or self.df.empty:
             return "❌ داده‌ای برای تحلیل وجود ندارد."
-
         last = self.df.iloc[-1]
         prev = self.df.iloc[-2] if len(self.df) > 1 else last
-
         current_price = last['Close']
         prev_close = prev['Close']
         price_change = ((current_price - prev_close) / prev_close) * 100
 
-        # MACD
         macd = last['MACD']
         macd_signal = last['MACD_Signal']
         if pd.isna(macd) or pd.isna(macd_signal):
@@ -116,7 +102,6 @@ class StockAnalyzer:
             macd_status = "❌ روند نزولی"
             macd_signal_text = "🔻 سیگنال فروش"
 
-        # RSI
         rsi = last['RSI']
         if pd.isna(rsi):
             rsi_status = "⚠️ داده کافی نیست"
@@ -127,7 +112,6 @@ class StockAnalyzer:
         else:
             rsi_status = f"⚖️ خنثی ({rsi:.1f})"
 
-        # حجم
         volume = last['Volume']
         vol_ma_20 = last['Volume_MA_20']
         vol_ratio = last['Volume_Ratio']
@@ -142,7 +126,6 @@ class StockAnalyzer:
         else:
             vol_status = f"📉 پایین‌تر از میانگین ({vol_ratio:.1f}x)"
 
-        # ورود/خروج پول
         net_money = last.get('Net_Money', 0)
         net_real = last.get('Net_Real', 0)
         net_legal = last.get('Net_Legal', 0)
@@ -152,7 +135,6 @@ class StockAnalyzer:
         else:
             money_status = "⚠️ در دسترس نیست"
 
-        # امتیازدهی و جمع‌بندی
         score = 0
         signals = []
         if not pd.isna(macd) and not pd.isna(macd_signal):
@@ -208,23 +190,19 @@ class StockAnalyzer:
 """
         return text
 
-    # --------------------- بک‌تست ----------------------------
     def backtest(self, days=100, initial_capital=100000000):
         if self.df is None or len(self.df) < days:
             return None
-
         df = self.df.tail(days).copy()
         signals = pd.Series(0, index=df.index)
         buy_condition = (df['RSI'] < 30) & (df['MACD'] > df['MACD_Signal'])
         sell_condition = (df['RSI'] > 70) & (df['MACD'] < df['MACD_Signal'])
         signals[buy_condition] = 1
         signals[sell_condition] = -1
-
         position = 0
         capital = initial_capital
         shares = 0
         trades = []
-
         for i in range(1, len(signals)):
             if signals.iloc[i] == 1 and position == 0:
                 price = df['Close'].iloc[i]
@@ -238,12 +216,10 @@ class StockAnalyzer:
                 shares = 0
                 position = 0
                 trades.append(('sell', i, price))
-
         if position == 1:
             price = df['Close'].iloc[-1]
             capital += shares * price
             trades.append(('sell', len(df)-1, price))
-
         final_capital = capital
         total_return = (final_capital - initial_capital) / initial_capital * 100
         num_trades = len(trades) // 2
@@ -256,7 +232,6 @@ class StockAnalyzer:
         else:
             win_rate = 0
         buy_hold_return = (df['Close'].iloc[-1] - df['Close'].iloc[0]) / df['Close'].iloc[0] * 100
-
         return {
             'initial_capital': initial_capital,
             'final_capital': final_capital,
@@ -266,14 +241,11 @@ class StockAnalyzer:
             'buy_hold_return': buy_hold_return
         }
 
-    # --------------------- پیش‌بینی -------------------------
     def predict_future(self, days_ahead=5):
         if self.df is None or len(self.df) < 30:
             return None
-
         from sklearn.linear_model import LinearRegression
         from sklearn.preprocessing import StandardScaler
-
         df = self.df.copy()
         for lag in range(1, 6):
             df[f'Close_lag_{lag}'] = df['Close'].shift(lag)
@@ -281,10 +253,8 @@ class StockAnalyzer:
         df['MACD_lag'] = df['MACD'].shift(1)
         df['Volume_lag'] = df['Volume'].shift(1)
         df = df.dropna()
-
         if len(df) < 20:
             return None
-
         X = df[['Close_lag_1', 'Close_lag_2', 'Close_lag_3', 'Close_lag_4', 'Close_lag_5',
                 'RSI_lag', 'MACD_lag', 'Volume_lag']].values
         y = df['Close'].shift(-1).dropna().values
@@ -293,12 +263,10 @@ class StockAnalyzer:
         min_len = min(len(X), len(y))
         X = X[:min_len]
         y = y[:min_len]
-
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
         model = LinearRegression()
         model.fit(X_scaled, y)
-
         last_row = df.iloc[-1]
         predictions = []
         current_features = [
@@ -312,11 +280,9 @@ class StockAnalyzer:
             current_features = [pred_price, current_features[0], current_features[1],
                                current_features[2], current_features[3],
                                last_row['RSI'], last_row['MACD'], last_row['Volume']]
-
         trend = []
         for i in range(1, len(predictions)):
             trend.append('صعودی' if predictions[i] > predictions[i-1] else 'نزولی')
-
         return {
             'predictions': predictions,
             'trend': trend,
